@@ -21,6 +21,9 @@ Sharp is a calm, local-first desktop app for building a personal question bank a
 - Edit existing questions, including one-choice-per-line multiple-choice
   answers and an optional rendered answer explanation. Save from the persistent
   header button, the button at the end of the form, or with **Ctrl+S**.
+- Write clean inline equations with familiar `$...$` notation. Sharp supports
+  exponents and subscripts (`$x^2 + y_1$`), fractions (`$\frac{1}{2}$`), and
+  common symbols such as `$\pi$`, `$\times$`, `$\le$`, and `$\sqrt$`.
 - Attach PNG, GIF, PPM, or PGM pictures to visual questions.
 - Switch between relaxed practice and an optional per-question timer.
 - Enable Zen mode to hide progress and scores while answering.
