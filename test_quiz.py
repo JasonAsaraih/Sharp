@@ -178,6 +178,12 @@ class EditorRegressionTests(unittest.TestCase):
         source = inspect.getsource(SharpQuiz.show_question)
         self.assertIn("answer = EquationEditor(body, height=2)", source)
 
+    def test_quiz_math_labels_preserve_stacked_fraction_alignment(self):
+        source = inspect.getsource(SharpQuiz.show_question)
+        self.assertIn('wraplength=720, justify="left"', source)
+        self.assertIn('justify="left", anchor="w"', source)
+        self.assertIn('wraplength=700, justify="left"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
