@@ -161,19 +161,34 @@ class QuizStore:
         temporary.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
         temporary.replace(self.path)
 
-    def add_question(self, prompt: str, answer: str, options=None, image="") -> dict:
+    def add_question(self, prompt: str, answer: str, options=None, image="", explanation="") -> dict:
         question = {
             "id": uuid4().hex,
             "prompt": prompt.strip(),
             "answer": answer.strip(),
             "options": [item.strip() for item in (options or []) if item.strip()],
             "image": image,
+            "explanation": explanation.strip(),
         }
         if not question["prompt"] or not question["answer"]:
             raise ValueError("A question and answer are required.")
         self.data["questions"].append(question)
         self.save()
         return question
+
+    def update_question(self, question_id: str, **values) -> dict:
+        for question in self.data["questions"]:
+            if question["id"] == question_id:
+                prompt, answer = values.get("prompt", "").strip(), values.get("answer", "").strip()
+                if not prompt or not answer:
+                    raise ValueError("A question and answer are required.")
+                question.update(prompt=prompt, answer=answer,
+                                options=[item.strip() for item in values.get("options", []) if item.strip()],
+                                image=values.get("image", ""),
+                                explanation=values.get("explanation", "").strip())
+                self.save()
+                return question
+        raise ValueError("Question could not be found.")
 
     def delete_question(self, question_id: str) -> None:
         self.data["questions"] = [q for q in self.data["questions"] if q["id"] != question_id]
@@ -191,14 +206,100 @@ class QuizStore:
         self.save()
 
 
+class EquationEditor(tk.Frame):
+    """Keyboard-friendly text editor with an unobtrusive standard-LaTeX toolbar."""
+
+    BUTTONS = (
+        ("a⁄b", r"\frac{{{}}}{{}}"), ("√", r"\sqrt{{{}}}"), ("xⁿ", "{}^{{}}"),
+        ("xₙ", "{}_{{}}"), ("( )", r"\left({}\right)"), ("[ ]", r"\left[{}\right]"),
+        ("×", r" \times "), ("÷", r" \div "), ("±", r" \pm "), ("=", " = "),
+        ("<", " < "), (">", " > "), ("≤", r" \le "), ("≥", r" \ge "),
+        ("|x|", r"\left|{}\right|"),
+        ("Σ", r"\sum_{{{}}}^{{}} "), ("∫", r"\int_{{{}}}^{{}} "),
+        ("sin", r"\sin({})"), ("cos", r"\cos({})"), ("tan", r"\tan({})"),
+        ("log", r"\log({})"), ("ln", r"\ln({})"), ("π", r"\pi"),
+    )
+    GREEK = ("α", r"\alpha"), ("β", r"\beta"), ("γ", r"\gamma"), ("θ", r"\theta"), \
+            ("λ", r"\lambda"), ("μ", r"\mu"), ("π", r"\pi"), ("σ", r"\sigma"), ("ω", r"\omega")
+
+    def __init__(self, parent, *, height=3, on_change=None, toolbar=True, **kwargs):
+        super().__init__(parent, bg="#FFFFFF")
+        self.text = tk.Text(self, height=height, wrap="word", undo=True, relief="solid",
+                            borderwidth=1, padx=8, pady=7, fg="#111111", bg="#FFFFFF",
+                            insertbackground="#111111", **kwargs)
+        self.text.pack(fill="x")
+        self.text.bind("<<Modified>>", self._changed)
+        self.text.bind("<Control-b>", lambda _e: self.insert_latex(r"\mathbf{{{}}}"))
+        self.on_change = on_change
+        if toolbar:
+            tools = tk.Frame(self, bg="#F2F2F2", padx=3, pady=3)
+            tools.pack(fill="x", pady=(3, 0))
+            for index, (label, latex) in enumerate(self.BUTTONS):
+                row = index // 10
+                tk.Button(tools, text=label, command=lambda value=latex: self.insert_latex(value),
+                          bg="#FFFFFF", fg="#111111", activebackground="#D8D8D8",
+                          relief="flat", padx=6, pady=2, takefocus=True).grid(row=row, column=index % 10, padx=1, pady=1)
+            greek = tk.Menubutton(tools, text="Greek ▾", bg="#FFFFFF", relief="flat", padx=6)
+            menu = tk.Menu(greek, tearoff=False)
+            for label, latex in self.GREEK:
+                menu.add_command(label=label, command=lambda value=latex: self.insert_latex(value))
+            greek.configure(menu=menu)
+            greek.grid(row=len(self.BUTTONS) // 10, column=len(self.BUTTONS) % 10, padx=1, pady=1)
+
+    def _changed(self, _event=None):
+        if self.text.edit_modified():
+            self.text.edit_modified(False)
+            if self.on_change:
+                self.on_change()
+
+    def get(self):
+        return self.text.get("1.0", "end-1c")
+
+    def set(self, value):
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", value)
+        self.text.edit_modified(False)
+
+    def insert_latex(self, template):
+        """Wrap the selection (or create a placeholder) and keep focus in the editor."""
+        try:
+            selected = self.text.get("sel.first", "sel.last")
+            self.text.delete("sel.first", "sel.last")
+        except tk.TclError:
+            selected = ""
+        latex = template.format(selected)
+        # Toolbar output is always a complete math region unless the cursor is already in one.
+        before = self.text.get("1.0", "insert")
+        state, index = None, 0
+        while index < len(before):
+            if before.startswith("$$", index):
+                state = None if state == "display" else "display"
+                index += 2
+            elif before[index] == "$" and state != "display":
+                state = None if state == "inline" else "inline"
+                index += 1
+            else:
+                index += 1
+        if state is None:
+            latex = f"${latex}$"
+        start = self.text.index("insert")
+        self.text.insert("insert", latex)
+        empty = latex.find("{}")
+        if empty >= 0:
+            self.text.mark_set("insert", f"{start}+{empty + 1}c")
+        self.text.focus_set()
+        if self.on_change:
+            self.on_change()
+
+
 class SharpQuiz:
-    BG = "#F4F1EA"
+    BG = "#F2F2F2"
     PANEL = "#FFFFFF"
-    INK = "#20312B"
-    MUTED = "#68756F"
-    GREEN = "#317A5A"
-    PALE = "#DDEBE3"
-    GOLD = "#E7A84B"
+    INK = "#111111"
+    MUTED = "#666666"
+    GREEN = "#202020"
+    PALE = "#E5E5E5"
+    GOLD = "#555555"
 
     def __init__(self, root: tk.Tk, store: QuizStore | None = None, *_legacy):
         self.root, self.store = root, store or QuizStore()
@@ -220,7 +321,7 @@ class SharpQuiz:
         style.theme_use("clam")
         style.configure("TButton", font=("TkDefaultFont", 11, "bold"), padding=(18, 10),
                         background=self.GREEN, foreground="white", borderwidth=0)
-        style.map("TButton", background=[("active", "#27664A")])
+        style.map("TButton", background=[("active", "#000000")])
         style.configure("Quiet.TButton", background=self.PALE, foreground=self.INK)
         style.configure("TEntry", padding=8)
 
@@ -235,11 +336,11 @@ class SharpQuiz:
         bar = tk.Frame(self.shell, bg=self.INK, height=92)
         bar.pack(fill="x")
         bar.pack_propagate(False)
-        tk.Label(bar, text="SHARP", bg=self.INK, fg="#A8D9BD", font=("TkDefaultFont", 12, "bold")).pack(
+        tk.Label(bar, text="SHARP", bg=self.INK, fg="#FFFFFF", font=("TkDefaultFont", 12, "bold")).pack(
             side="left", padx=(36, 22))
         tk.Label(bar, text=title, bg=self.INK, fg="white", font=("TkDefaultFont", 22, "bold")).pack(side="left")
         if subtitle:
-            tk.Label(bar, text=subtitle, bg=self.INK, fg="#BFC9C4", font=("TkDefaultFont", 10)).pack(
+            tk.Label(bar, text=subtitle, bg=self.INK, fg="#C8C8C8", font=("TkDefaultFont", 10)).pack(
                 side="left", padx=18)
         return bar
 
@@ -308,6 +409,8 @@ class SharpQuiz:
                      font=("TkDefaultFont", 11)).pack(side="left", padx=18)
             ttk.Button(row, text="Delete", style="Quiet.TButton",
                        command=lambda q=question: self._delete(q)).pack(side="right")
+            ttk.Button(row, text="Edit", style="Quiet.TButton",
+                       command=lambda q=question: self.show_editor(q)).pack(side="right", padx=5)
 
     def _delete(self, question):
         if messagebox.askyesno("Delete question", f"Remove “{question['prompt']}”?"):
@@ -343,12 +446,19 @@ class SharpQuiz:
                    command=lambda: image_path.set(filedialog.askopenfilename(filetypes=[("Images", "*.png *.gif *.ppm *.pgm"), ("All files", "*.*")]))).pack(side="left", padx=(10, 0))
         error = tk.Label(form, text="", bg=self.PANEL, fg="#A23B3B"); error.pack(anchor="w", pady=8)
         def save():
+            raw_choices = choices_editor.get()
+            options = raw_choices.splitlines() if "\n" in raw_choices else raw_choices.split(",")
+            values = dict(prompt=prompt_editor.get(), answer=answer_editor.get(), options=options,
+                          image=image_path.get(), explanation=explanation_editor.get())
             try:
-                self.store.add_question(prompt.get(), answer.get(), options.get().split(","), image_path.get())
+                if question:
+                    self.store.update_question(question["id"], **values)
+                else:
+                    self.store.add_question(**values)
                 self.show_library()
             except ValueError as exc:
                 error.configure(text=str(exc))
-        ttk.Button(form, text="Save question", command=save).pack(anchor="e", pady=12)
+        ttk.Button(bottom, text="Save question", command=save).pack(side="right")
 
     def start_session(self):
         questions = self.store.data["questions"]
@@ -378,14 +488,16 @@ class SharpQuiz:
                 tk.Label(body, text="Picture unavailable", bg=self.PANEL, fg=self.MUTED).pack()
         tk.Label(body, text=format_math_text(question["prompt"]), wraplength=720, justify="center", bg=self.PANEL,
                  fg=self.INK, font=("TkDefaultFont", 20, "bold")).pack(pady=(5, 24))
-        answer = tk.StringVar()
         if question["options"]:
+            answer = tk.StringVar()
             for option in question["options"]:
                 tk.Radiobutton(body, text=format_math_text(option), variable=answer, value=option, indicatoron=False,
                                bg=self.PALE, selectcolor="#A8D9BD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
         else:
-            entry = ttk.Entry(body, textvariable=answer, font=("TkDefaultFont", 14), justify="center")
-            entry.pack(fill="x", pady=10); entry.focus_set(); entry.bind("<Return>", lambda _e: submit())
+            answer = EquationEditor(body, height=2)
+            answer.pack(fill="x", pady=10)
+            answer.text.focus_set()
+            answer.text.bind("<Control-Return>", lambda _e: submit())
         feedback = tk.Label(body, text="", bg=self.PANEL, fg=self.GREEN, font=("TkDefaultFont", 11, "bold")); feedback.pack(pady=10)
         def submit(timed_out=False):
             if getattr(self, "_answered", False): return
