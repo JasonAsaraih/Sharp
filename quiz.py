@@ -528,7 +528,7 @@ class SharpQuiz:
             row.pack(fill="x", pady=5)
             tk.Label(row, text=f"{number:02}", bg=self.PANEL, fg=self.GREEN, font=("TkDefaultFont", 11, "bold")).pack(side="left")
             tk.Label(row, text=format_math_text(question["prompt"]), bg=self.PANEL, fg=self.INK,
-                     font=("TkDefaultFont", 11)).pack(side="left", padx=18)
+                     font=("TkDefaultFont", 11), justify="left").pack(side="left", padx=18)
             ttk.Button(row, text="Delete", style="Quiet.TButton",
                        command=lambda q=question: self._delete(q)).pack(side="right")
             ttk.Button(row, text="Edit", style="Quiet.TButton",
@@ -664,13 +664,19 @@ class SharpQuiz:
                 tk.Label(body, image=shown, bg=self.PANEL).pack(pady=(0, 18))
             except tk.TclError:
                 tk.Label(body, text="Picture unavailable", bg=self.PANEL, fg=self.MUTED).pack()
-        tk.Label(body, text=format_math_text(question["prompt"]), wraplength=720, justify="center", bg=self.PANEL,
+        # A stacked fraction is represented by three carefully padded text rows.
+        # Tk's centered justification centers each row independently, shifting the
+        # numerator and denominator away from the fraction bar when other text is
+        # present on the baseline.  Left justification preserves that layout while
+        # pack() still centers the label itself in the practice card.
+        tk.Label(body, text=format_math_text(question["prompt"]), wraplength=720, justify="left", bg=self.PANEL,
                  fg=self.INK, font=("TkDefaultFont", 20, "bold")).pack(pady=(5, 24))
         if question["options"]:
             answer = tk.StringVar()
             for option in question["options"]:
                 tk.Radiobutton(body, text=format_math_text(option), variable=answer, value=option, indicatoron=False,
-                               bg=self.PALE, selectcolor="#BDBDBD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
+                               bg=self.PALE, selectcolor="#BDBDBD", fg=self.INK, padx=18, pady=10,
+                               justify="left", anchor="w").pack(fill="x", pady=4)
         else:
             answer = EquationEditor(body, height=2)
             answer.pack(fill="x", pady=10)
@@ -688,7 +694,7 @@ class SharpQuiz:
             message = "Nice work — that's right." if correct else f"Answer: {shown_answer}"
             if explanation:
                 message += f"\n\n{explanation}"
-            feedback.configure(text=message, wraplength=700, justify="center",
+            feedback.configure(text=message, wraplength=700, justify="left",
                                fg=self.GREEN if correct else "#333333")
             button.configure(text="Continue →", command=self._advance)
         self._answered = False
