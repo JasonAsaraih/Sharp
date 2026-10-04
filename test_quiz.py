@@ -73,6 +73,14 @@ class FreeResponseTests(unittest.TestCase):
         rendered = format_math_text(r"Area is $A = \pi r^2$ and $x_1 \le x_2$.")
         self.assertEqual(rendered, "Area is A = π r² and x₁ ≤ x₂.")
 
+    def test_renders_fraction_with_stacked_numerator_and_denominator(self):
+        rendered = format_math_text(r"$\frac{x + 1}{2}$")
+        self.assertEqual(rendered, "x + 1\n─────\n  2")
+        self.assertNotIn("⁄", rendered)
+
+    def test_stacked_fraction_formatting_does_not_change_answer_comparison(self):
+        self.assertTrue(answers_match(r"$\frac{1}{2}$", "0.5"))
+
     def test_text_outside_math_is_unchanged(self):
         self.assertEqual(format_math_text("Price is $5"), "Price is $5")
 

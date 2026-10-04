@@ -52,13 +52,41 @@ _SUBSCRIPT = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊
 def format_math_text(text: str) -> str:
     """Turn approachable, LaTeX-like text between ``$`` markers into Unicode math.
 
-    This deliberately stays dependency-free so saved quizzes remain portable. For
-    example, ``$x^2 = \\frac{1}{2}\\pi r^2$`` becomes ``x² = ½π r²``.
+    This deliberately stays dependency-free so saved quizzes remain portable.
+    Fractions use three text rows so the numerator and denominator appear above
+    and below a horizontal bar instead of being flattened around a slash.
     """
-    def render(expression: str) -> str:
-        # Resolve nested structural commands from the inside out.
+    class _MathLayout:
+        """A small, dependency-free text layout with an explicit baseline."""
+
+        def __init__(self, lines, baseline=0):
+            self.lines = lines
+            self.baseline = baseline
+
+        @property
+        def width(self):
+            return max((len(line) for line in self.lines), default=0)
+
+        def beside(self, other):
+            above = max(self.baseline, other.baseline)
+            below = max(len(self.lines) - self.baseline - 1,
+                        len(other.lines) - other.baseline - 1)
+
+            def line_at(layout, row):
+                own_row = row - above + layout.baseline
+                if 0 <= own_row < len(layout.lines):
+                    return layout.lines[own_row].ljust(layout.width)
+                return " " * layout.width
+
+            return _MathLayout(
+                [line_at(self, row) + line_at(other, row)
+                 for row in range(above + below + 1)],
+                above,
+            )
+
+    def render_plain(expression: str) -> str:
+        # Resolve non-fraction structural commands from the inside out.
         structural = [
-            (r"\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}", lambda m: f"({m[1]})⁄({m[2]})"),
             (r"\\sqrt(?:\[([^]]+)\])?\s*\{([^{}]*)\}",
              lambda m: f"√{('[' + m[1] + ']') if m[1] else ''}({m[2]})"),
             (r"\\(?:text|mathrm|mathbf|mathit)\s*\{([^{}]*)\}", lambda m: m[1]),
@@ -83,11 +111,6 @@ def format_math_text(text: str) -> str:
         for command, symbol in sorted(_MATH_SYMBOLS.items(), key=lambda item: -len(item[0])):
             expression = expression.replace(command, symbol)
         expression = re.sub(r"\\(sin|cos|tan|log|ln|exp|lim)\b", r"\1", expression)
-        expression = re.sub(
-            r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}",
-            lambda match: f"({match.group(1)})⁄({match.group(2)})",
-            expression,
-        )
         for command, symbol in sorted(_MATH_SYMBOLS.items(), key=lambda item: -len(item[0])):
             expression = expression.replace(command, symbol)
         expression = re.sub(
@@ -102,12 +125,63 @@ def format_math_text(text: str) -> str:
         )
         return expression.replace("{", "").replace("}", "")
 
+    def braced_value(expression: str, start: int):
+        """Return a balanced braced value and the index just after it."""
+        if start >= len(expression) or expression[start] != "{":
+            return None
+        depth = 1
+        for index in range(start + 1, len(expression)):
+            if expression[index] == "{":
+                depth += 1
+            elif expression[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return expression[start + 1:index], index + 1
+        return None
+
+    def render_layout(expression: str) -> _MathLayout:
+        """Lay fractions out vertically while keeping surrounding text aligned."""
+        result = _MathLayout([""])
+        cursor = 0
+        fraction = re.compile(r"\\frac\s*")
+        while match := fraction.search(expression, cursor):
+            numerator = braced_value(expression, match.end())
+            if numerator is None:
+                break
+            denominator_start = numerator[1]
+            while denominator_start < len(expression) and expression[denominator_start].isspace():
+                denominator_start += 1
+            denominator = braced_value(expression, denominator_start)
+            if denominator is None:
+                break
+            result = result.beside(_MathLayout([render_plain(expression[cursor:match.start()])]))
+            top = render_layout(numerator[0])
+            bottom = render_layout(denominator[0])
+            width = max(top.width, bottom.width, 1)
+            lines = ([line.center(width) for line in top.lines] + ["─" * width] +
+                     [line.center(width) for line in bottom.lines])
+            result = result.beside(_MathLayout(lines, len(top.lines)))
+            cursor = denominator[1]
+        return result.beside(_MathLayout([render_plain(expression[cursor:])]))
+
+    def render(expression: str) -> str:
+        layout = render_layout(expression)
+        return "\n".join(line.rstrip() for line in layout.lines)
+
     text = re.sub(r"\$\$(.+?)\$\$", lambda match: "\n" + render(match.group(1).strip()) + "\n",
                   text, flags=re.DOTALL)
     return re.sub(r"\$([^$\n]+)\$", lambda match: render(match.group(1)), text)
 
 
 def _canonical_answer(value: str) -> str:
+    # Answer comparison needs a linear representation even though the visual
+    # renderer deliberately stacks fractions over multiple rows.
+    fraction = re.compile(r"\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}")
+    for _ in range(12):
+        flattened = fraction.sub(r"(\1)/(\2)", value)
+        if flattened == value:
+            break
+        value = flattened
     value = unicodedata.normalize("NFKC", format_math_text(value)).casefold()
     value = value.translate(str.maketrans({"−": "-", "×": "*", "·": "*", "÷": "/", "⁄": "/"}))
     # Ignore spacing and presentation punctuation, but retain mathematical operators.
