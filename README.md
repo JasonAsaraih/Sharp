@@ -5,6 +5,22 @@ Sharp is a calm, local-first desktop app for building a personal question bank a
 ## Features
 
 - Create unlimited multiple-choice or written-answer questions from the GUI.
+- Check written answers intelligently: capitalization, whitespace, and presentation
+  punctuation do not matter, and equivalent arithmetic such as `1/2`, `0.5`, and
+  `50%` is accepted.
+- Add alternate correct responses with `||` (for example,
+  `New York City || NYC`).
+- Write standard LaTeX inline with `$...$` or as a display equation with
+  `$$...$$`. The shared renderer handles fractions, roots, scripts, sums,
+  integrals, functions, Greek letters, inequalities, and matrix environments
+  in questions, choices, answers, explanations, previews, and review feedback.
+- Build LaTeX without memorizing commands by using the equation toolbar in the
+  question editor and free-response answer box. Selecting text before choosing
+  a tool wraps that text in the requested structure. The **Symbols** menu adds
+  common special characters such as `∞`, `≠`, `≈`, `∂`, and `∇`.
+- Edit existing questions, including one-choice-per-line multiple-choice
+  answers and an optional rendered answer explanation. Save from the persistent
+  header button, the button at the end of the form, or with **Ctrl+S**.
 - Attach PNG, GIF, PPM, or PGM pictures to visual questions.
 - Switch between relaxed practice and an optional per-question timer.
 - Enable Zen mode to hide progress and scores while answering.
