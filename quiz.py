@@ -43,6 +43,7 @@ _MATH_SYMBOLS = {
     r"\notin": "∉", r"\subset": "⊂", r"\subseteq": "⊆", r"\forall": "∀",
     r"\exists": "∃", r"\lambda": "λ", r"\mu": "μ", r"\sigma": "σ",
     r"\omega": "ω", r"\phi": "φ", r"\rho": "ρ", r"\epsilon": "ε",
+    r"\Delta": "Δ", r"\rightarrow": "→", r"\degree": "°",
 }
 _SUPERSCRIPT = str.maketrans("0123456789+-=()n", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
 _SUBSCRIPT = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
@@ -83,6 +84,13 @@ def format_math_text(text: str) -> str:
             expression = expression.replace(command, symbol)
         expression = re.sub(r"\\(sin|cos|tan|log|ln|exp|lim)\b", r"\1", expression)
         expression = re.sub(
+            r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}",
+            lambda match: f"({match.group(1)})⁄({match.group(2)})",
+            expression,
+        )
+        for command, symbol in sorted(_MATH_SYMBOLS.items(), key=lambda item: -len(item[0])):
+            expression = expression.replace(command, symbol)
+        expression = re.sub(
             r"\^\{([^{}]+)\}|\^([0-9+\-=()n]+)",
             lambda match: (match.group(1) or match.group(2)).translate(_SUPERSCRIPT),
             expression,
@@ -97,6 +105,7 @@ def format_math_text(text: str) -> str:
     text = re.sub(r"\$\$(.+?)\$\$", lambda match: "\n" + render(match.group(1).strip()) + "\n",
                   text, flags=re.DOTALL)
     return re.sub(r"\$([^$\n]+)\$", lambda match: render(match.group(1)), text)
+    return re.sub(r"\$([^$]+)\$", lambda match: render(match.group(1)), text)
 
 
 def _canonical_answer(value: str) -> str:
@@ -267,6 +276,8 @@ class EquationEditor(tk.Frame):
                      font=("TkDefaultFont", 8, "bold")).grid(row=0, column=0, columnspan=10, sticky="w", padx=3)
             for index, (label, latex) in enumerate(self.BUTTONS):
                 row = 1 + index // 10
+            for index, (label, latex) in enumerate(self.BUTTONS):
+                row = index // 10
                 tk.Button(tools, text=label, command=lambda value=latex: self.insert_latex(value),
                           bg="#FFFFFF", fg="#111111", activebackground="#D8D8D8",
                           relief="flat", padx=6, pady=2, takefocus=True).grid(row=row, column=index % 10, padx=1, pady=1)
@@ -284,6 +295,7 @@ class EquationEditor(tk.Frame):
                                          command=lambda value=latex: self.insert_latex(value))
             special.configure(menu=special_menu)
             special.grid(row=menu_row, column=menu_column + 1, padx=1, pady=1)
+            greek.grid(row=len(self.BUTTONS) // 10, column=len(self.BUTTONS) % 10, padx=1, pady=1)
 
     def _changed(self, _event=None):
         if self.text.edit_modified():
@@ -527,6 +539,31 @@ class SharpQuiz:
 
         image_row = tk.Frame(form, bg=self.PANEL)
         image_row.pack(fill="x", pady=(8, 0))
+    def show_editor(self):
+        self._clear(); header = self._header("Create a question", "Keep it focused and memorable.")
+        ttk.Button(header, text="← Cancel", style="Quiet.TButton", command=self.show_home).pack(side="right", padx=32)
+        form = tk.Frame(self.shell, bg=self.PANEL, padx=34, pady=28, highlightthickness=1, highlightbackground="#E2DED5")
+        form.pack(fill="both", expand=True, padx=120, pady=28)
+        prompt, answer, options, image_path = tk.StringVar(), tk.StringVar(), tk.StringVar(), tk.StringVar()
+        def field(label, variable, hint):
+            tk.Label(form, text=label, bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(12, 5))
+            ttk.Entry(form, textvariable=variable, font=("TkDefaultFont", 12)).pack(fill="x")
+            tk.Label(form, text=hint, bg=self.PANEL, fg=self.MUTED).pack(anchor="w", pady=(4, 0))
+        field("QUESTION", prompt, r"Use $...$ for math, for example $x^2 + \frac{1}{2}$.")
+        field("CORRECT ANSWER", answer,
+              "Spacing, capitalization, and punctuation are ignored. Use || between accepted answers.")
+        preview = tk.Label(form, text="", bg=self.PALE, fg=self.INK, justify="left",
+                           anchor="w", padx=12, pady=8, font=("TkDefaultFont", 11))
+        preview.pack(fill="x", pady=(10, 0))
+        def update_preview(*_args):
+            preview.configure(text=(f"Preview:  {format_math_text(prompt.get())}\n"
+                                    f"Answer:   {format_math_text(answer.get())}"))
+        prompt.trace_add("write", update_preview)
+        answer.trace_add("write", update_preview)
+        update_preview()
+        field("ANSWER CHOICES (OPTIONAL)", options, "Separate choices with commas; leave blank for typed response.")
+        tk.Label(form, text="PICTURE (OPTIONAL)", bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(18, 5))
+        image_row = tk.Frame(form, bg=self.PANEL); image_row.pack(fill="x")
         ttk.Entry(image_row, textvariable=image_path).pack(side="left", fill="x", expand=True)
         ttk.Button(image_row, text="Choose image", style="Quiet.TButton",
                    command=lambda: image_path.set(filedialog.askopenfilename(
@@ -554,6 +591,7 @@ class SharpQuiz:
         # The primary action lives in the fixed header, outside the scrolling form.
         ttk.Button(header, text="Save question", command=save).pack(side="right", padx=(8, 0), pady=22)
         self.root.bind("<Control-s>", lambda _event: (save(), "break")[1])
+        ttk.Button(bottom, text="Save question", command=save).pack(side="right")
 
     def start_session(self):
         questions = self.store.data["questions"]
@@ -588,6 +626,7 @@ class SharpQuiz:
             for option in question["options"]:
                 tk.Radiobutton(body, text=format_math_text(option), variable=answer, value=option, indicatoron=False,
                                bg=self.PALE, selectcolor="#BDBDBD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
+                               bg=self.PALE, selectcolor="#A8D9BD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
         else:
             answer = EquationEditor(body, height=2)
             answer.pack(fill="x", pady=10)
@@ -607,6 +646,8 @@ class SharpQuiz:
                 message += f"\n\n{explanation}"
             feedback.configure(text=message, wraplength=700, justify="center",
                                fg=self.GREEN if correct else "#333333")
+            feedback.configure(text=("Nice work — that's right." if correct else f"Answer: {shown_answer}"),
+                               fg=self.GREEN if correct else "#A23B3B")
             button.configure(text="Continue →", command=self._advance)
         self._answered = False
         button = ttk.Button(body, text="Check answer", command=submit); button.pack(pady=8)
