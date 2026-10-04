@@ -38,11 +38,7 @@ _MATH_SYMBOLS = {
     r"\le": "≤", r"\ge": "≥", r"\ne": "≠", r"\approx": "≈",
     r"\infty": "∞", r"\sum": "∑", r"\sqrt": "√", r"\pi": "π",
     r"\theta": "θ", r"\alpha": "α", r"\beta": "β", r"\gamma": "γ",
-    r"\Delta": "Δ", r"\rightarrow": "→", r"\degree": "°", r"\int": "∫",
-    r"\prod": "∏", r"\partial": "∂", r"\nabla": "∇", r"\in": "∈",
-    r"\notin": "∉", r"\subset": "⊂", r"\subseteq": "⊆", r"\forall": "∀",
-    r"\exists": "∃", r"\lambda": "λ", r"\mu": "μ", r"\sigma": "σ",
-    r"\omega": "ω", r"\phi": "φ", r"\rho": "ρ", r"\epsilon": "ε",
+    r"\Delta": "Δ", r"\rightarrow": "→", r"\degree": "°",
 }
 _SUPERSCRIPT = str.maketrans("0123456789+-=()n", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
 _SUBSCRIPT = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
@@ -55,33 +51,13 @@ def format_math_text(text: str) -> str:
     example, ``$x^2 = \\frac{1}{2}\\pi r^2$`` becomes ``x² = ½π r²``.
     """
     def render(expression: str) -> str:
-        # Resolve nested structural commands from the inside out.
-        structural = [
-            (r"\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}", lambda m: f"({m[1]})⁄({m[2]})"),
-            (r"\\sqrt(?:\[([^]]+)\])?\s*\{([^{}]*)\}",
-             lambda m: f"√{('[' + m[1] + ']') if m[1] else ''}({m[2]})"),
-            (r"\\(?:text|mathrm|mathbf|mathit)\s*\{([^{}]*)\}", lambda m: m[1]),
-            (r"\\(?:left|right)", lambda _m: ""),
-        ]
-        for _ in range(12):
-            previous = expression
-            for pattern, replacement in structural:
-                expression = re.sub(pattern, replacement, expression)
-            if expression == previous:
-                break
-        def matrix(match):
-            rows = [[cell.strip() for cell in row.split("&")]
-                    for row in re.split(r"\\\\", match.group(2))]
-            width = max((len(row) for row in rows), default=0)
-            rows = [row + [""] * (width - len(row)) for row in rows]
-            body = "\n".join("  ".join(row) for row in rows)
-            brackets = ("|", "|") if "vmatrix" in match.group(1) else ("⎡", "⎤")
-            return "\n".join(f"{brackets[0]} {row} {brackets[1]}" for row in body.splitlines())
-        expression = re.sub(r"\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}(.+?)\\end\{\1\}",
-                            matrix, expression, flags=re.DOTALL)
+        expression = re.sub(
+            r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}",
+            lambda match: f"({match.group(1)})⁄({match.group(2)})",
+            expression,
+        )
         for command, symbol in sorted(_MATH_SYMBOLS.items(), key=lambda item: -len(item[0])):
             expression = expression.replace(command, symbol)
-        expression = re.sub(r"\\(sin|cos|tan|log|ln|exp|lim)\b", r"\1", expression)
         expression = re.sub(
             r"\^\{([^{}]+)\}|\^([0-9+\-=()n]+)",
             lambda match: (match.group(1) or match.group(2)).translate(_SUPERSCRIPT),
@@ -94,9 +70,7 @@ def format_math_text(text: str) -> str:
         )
         return expression.replace("{", "").replace("}", "")
 
-    text = re.sub(r"\$\$(.+?)\$\$", lambda match: "\n" + render(match.group(1).strip()) + "\n",
-                  text, flags=re.DOTALL)
-    return re.sub(r"\$([^$\n]+)\$", lambda match: render(match.group(1)), text)
+    return re.sub(r"\$([^$]+)\$", lambda match: render(match.group(1)), text)
 
 
 def _canonical_answer(value: str) -> str:
@@ -247,9 +221,6 @@ class EquationEditor(tk.Frame):
     )
     GREEK = ("α", r"\alpha"), ("β", r"\beta"), ("γ", r"\gamma"), ("θ", r"\theta"), \
             ("λ", r"\lambda"), ("μ", r"\mu"), ("π", r"\pi"), ("σ", r"\sigma"), ("ω", r"\omega")
-    SPECIAL = (("∞", r"\infty"), ("≠", r"\ne"), ("≈", r"\approx"),
-               ("→", r"\rightarrow"), ("°", r"\degree"), ("∂", r"\partial"),
-               ("∇", r"\nabla"), ("∈", r"\in"), ("∉", r"\notin"))
 
     def __init__(self, parent, *, height=3, on_change=None, toolbar=True, **kwargs):
         super().__init__(parent, bg="#FFFFFF")
@@ -263,10 +234,8 @@ class EquationEditor(tk.Frame):
         if toolbar:
             tools = tk.Frame(self, bg="#F2F2F2", padx=3, pady=3)
             tools.pack(fill="x", pady=(3, 0))
-            tk.Label(tools, text="Equation tools", bg="#F2F2F2", fg="#444444",
-                     font=("TkDefaultFont", 8, "bold")).grid(row=0, column=0, columnspan=10, sticky="w", padx=3)
             for index, (label, latex) in enumerate(self.BUTTONS):
-                row = 1 + index // 10
+                row = index // 10
                 tk.Button(tools, text=label, command=lambda value=latex: self.insert_latex(value),
                           bg="#FFFFFF", fg="#111111", activebackground="#D8D8D8",
                           relief="flat", padx=6, pady=2, takefocus=True).grid(row=row, column=index % 10, padx=1, pady=1)
@@ -275,15 +244,7 @@ class EquationEditor(tk.Frame):
             for label, latex in self.GREEK:
                 menu.add_command(label=label, command=lambda value=latex: self.insert_latex(value))
             greek.configure(menu=menu)
-            menu_row, menu_column = 1 + len(self.BUTTONS) // 10, len(self.BUTTONS) % 10
-            greek.grid(row=menu_row, column=menu_column, padx=1, pady=1)
-            special = tk.Menubutton(tools, text="Symbols ▾", bg="#FFFFFF", relief="flat", padx=6)
-            special_menu = tk.Menu(special, tearoff=False)
-            for label, latex in self.SPECIAL:
-                special_menu.add_command(label=label,
-                                         command=lambda value=latex: self.insert_latex(value))
-            special.configure(menu=special_menu)
-            special.grid(row=menu_row, column=menu_column + 1, padx=1, pady=1)
+            greek.grid(row=len(self.BUTTONS) // 10, column=len(self.BUTTONS) % 10, padx=1, pady=1)
 
     def _changed(self, _event=None):
         if self.text.edit_modified():
@@ -456,73 +417,31 @@ class SharpQuiz:
         if messagebox.askyesno("Delete question", f"Remove “{question['prompt']}”?"):
             self.store.delete_question(question["id"]); self.show_library()
 
-    def show_editor(self, question=None):
-        self._clear()
-        title = "Edit question" if question else "Create a question"
-        header = self._header(title, "Standard LaTeX works anywhere you see the equation toolbar.")
-        ttk.Button(header, text="← Cancel", style="Quiet.TButton", command=self.show_library).pack(side="right", padx=32)
-        holder = tk.Frame(self.shell, bg=self.BG)
-        holder.pack(fill="both", expand=True, padx=40, pady=18)
-        canvas = tk.Canvas(holder, bg=self.PANEL, highlightthickness=1,
-                           highlightbackground="#CCCCCC")
-        scrollbar = ttk.Scrollbar(holder, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
-        form = tk.Frame(canvas, bg=self.PANEL, padx=28, pady=16)
-        form_window = canvas.create_window((0, 0), window=form, anchor="nw")
-        form.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(form_window, width=event.width))
-        scroll = lambda event: canvas.yview_scroll(-event.delta // 120, "units")
-        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", scroll))
-        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
-        image_path = tk.StringVar(value=(question or {}).get("image", ""))
-
-        def label(text, hint=""):
-            tk.Label(form, text=text, bg=self.PANEL, fg=self.INK,
-                     font=("TkDefaultFont", 9, "bold")).pack(anchor="w", pady=(7, 2))
-            if hint:
-                tk.Label(form, text=hint, bg=self.PANEL, fg=self.MUTED,
-                         font=("TkDefaultFont", 8)).pack(anchor="w")
-
-        preview = tk.Label(form, text="Preview", bg="#F2F2F2", fg=self.INK, justify="left",
-                           anchor="w", padx=12, pady=7, wraplength=820)
-        editors = {}
-        def update_preview():
-            pieces = [format_math_text(prompt_editor.get()) or "Preview",
-                      format_math_text(answer_editor.get())]
-            if "choices" in editors:
-                pieces.extend(f"• {format_math_text(choice)}"
-                              for choice in choices_editor.get().splitlines() if choice.strip())
-            if "explanation" in editors and explanation_editor.get().strip():
-                pieces.append("Explanation: " + format_math_text(explanation_editor.get()))
-            preview.configure(text="\n".join(piece for piece in pieces if piece))
-
-        label("QUESTION", r"Type standard LaTeX inside $...$ (inline) or $$...$$ (display), or use the toolbar.")
-        prompt_editor = EquationEditor(form, height=2, on_change=update_preview)
-        prompt_editor.pack(fill="x")
-        label("CORRECT ANSWER", "Use || between alternate correct answers.")
-        answer_editor = EquationEditor(form, height=1, on_change=update_preview)
-        answer_editor.pack(fill="x")
-        preview.pack(fill="x", pady=(6, 0))
-        label("ANSWER CHOICES (OPTIONAL)", "Put one choice per line. Each choice supports independent LaTeX.")
-        choices_editor = EquationEditor(form, height=2, on_change=update_preview)
-        editors["choices"] = choices_editor
-        choices_editor.pack(fill="x")
-        label("ANSWER EXPLANATION (OPTIONAL)", "Shown after answering; text and LaTeX are supported.")
-        explanation_editor = EquationEditor(form, height=1, on_change=update_preview)
-        editors["explanation"] = explanation_editor
-        explanation_editor.pack(fill="x")
-
-        if question:
-            prompt_editor.set(question.get("prompt", ""))
-            answer_editor.set(question.get("answer", ""))
-            choices_editor.set("\n".join(question.get("options", [])))
-            explanation_editor.set(question.get("explanation", ""))
+    def show_editor(self):
+        self._clear(); header = self._header("Create a question", "Keep it focused and memorable.")
+        ttk.Button(header, text="← Cancel", style="Quiet.TButton", command=self.show_home).pack(side="right", padx=32)
+        form = tk.Frame(self.shell, bg=self.PANEL, padx=34, pady=28, highlightthickness=1, highlightbackground="#E2DED5")
+        form.pack(fill="both", expand=True, padx=120, pady=28)
+        prompt, answer, options, image_path = tk.StringVar(), tk.StringVar(), tk.StringVar(), tk.StringVar()
+        def field(label, variable, hint):
+            tk.Label(form, text=label, bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(12, 5))
+            ttk.Entry(form, textvariable=variable, font=("TkDefaultFont", 12)).pack(fill="x")
+            tk.Label(form, text=hint, bg=self.PANEL, fg=self.MUTED).pack(anchor="w", pady=(4, 0))
+        field("QUESTION", prompt, r"Use $...$ for math, for example $x^2 + \frac{1}{2}$.")
+        field("CORRECT ANSWER", answer,
+              "Spacing, capitalization, and punctuation are ignored. Use || between accepted answers.")
+        preview = tk.Label(form, text="", bg=self.PALE, fg=self.INK, justify="left",
+                           anchor="w", padx=12, pady=8, font=("TkDefaultFont", 11))
+        preview.pack(fill="x", pady=(10, 0))
+        def update_preview(*_args):
+            preview.configure(text=(f"Preview:  {format_math_text(prompt.get())}\n"
+                                    f"Answer:   {format_math_text(answer.get())}"))
+        prompt.trace_add("write", update_preview)
+        answer.trace_add("write", update_preview)
         update_preview()
-
-        image_row = tk.Frame(form, bg=self.PANEL)
-        image_row.pack(fill="x", pady=(8, 0))
+        field("ANSWER CHOICES (OPTIONAL)", options, "Separate choices with commas; leave blank for typed response.")
+        tk.Label(form, text="PICTURE (OPTIONAL)", bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(18, 5))
+        image_row = tk.Frame(form, bg=self.PANEL); image_row.pack(fill="x")
         ttk.Entry(image_row, textvariable=image_path).pack(side="left", fill="x", expand=True)
         ttk.Button(image_row, text="Choose image", style="Quiet.TButton",
                    command=lambda: image_path.set(filedialog.askopenfilename(
@@ -543,9 +462,7 @@ class SharpQuiz:
                 self.show_library()
             except ValueError as exc:
                 error.configure(text=str(exc))
-        # The primary action lives in the fixed header, outside the scrolling form.
-        ttk.Button(header, text="Save question", command=save).pack(side="right", padx=(8, 0), pady=22)
-        self.root.bind("<Control-s>", lambda _event: (save(), "break")[1])
+        ttk.Button(bottom, text="Save question", command=save).pack(side="right")
 
     def start_session(self):
         questions = self.store.data["questions"]
@@ -579,7 +496,7 @@ class SharpQuiz:
             answer = tk.StringVar()
             for option in question["options"]:
                 tk.Radiobutton(body, text=format_math_text(option), variable=answer, value=option, indicatoron=False,
-                               bg=self.PALE, selectcolor="#BDBDBD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
+                               bg=self.PALE, selectcolor="#A8D9BD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
         else:
             answer = EquationEditor(body, height=2)
             answer.pack(fill="x", pady=10)
@@ -593,12 +510,8 @@ class SharpQuiz:
             self.store.record_answer(correct)
             self.session_correct += int(correct)
             shown_answer = format_math_text(question["answer"].split("||", 1)[0].strip())
-            explanation = format_math_text(question.get("explanation", ""))
-            message = "Nice work — that's right." if correct else f"Answer: {shown_answer}"
-            if explanation:
-                message += f"\n\n{explanation}"
-            feedback.configure(text=message, wraplength=700, justify="center",
-                               fg=self.GREEN if correct else "#333333")
+            feedback.configure(text=("Nice work — that's right." if correct else f"Answer: {shown_answer}"),
+                               fg=self.GREEN if correct else "#A23B3B")
             button.configure(text="Continue →", command=self._advance)
         self._answered = False
         button = ttk.Button(body, text="Check answer", command=submit); button.pack(pady=8)

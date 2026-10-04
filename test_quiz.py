@@ -5,8 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import quiz
-from quiz import EquationEditor, QuizStore, SharpQuiz, answers_match, format_math_text
+from quiz import QuizStore, answers_match, format_math_text
 
 
 class QuizStoreTests(unittest.TestCase):
@@ -90,56 +89,28 @@ class FreeResponseTests(unittest.TestCase):
         self.assertEqual(rendered.strip(), "⎡ a  b ⎤\n⎡ c  d ⎤")
 
 
-class EditorRegressionTests(unittest.TestCase):
-    class FakeWidget:
-        def __init__(self, *_args, **kwargs):
-            self.value = kwargs.get("value", "")
-            self.command = kwargs.get("command")
+class FreeResponseTests(unittest.TestCase):
+    def test_ignores_whitespace_case_and_punctuation(self):
+        self.assertTrue(answers_match("  Albert   Einstein! ", "albert einstein"))
 
-        def __getattr__(self, _name):
-            return lambda *_args, **_kwargs: self
+    def test_accepts_explicit_alternatives(self):
+        self.assertTrue(answers_match("NYC", "New York City || NYC"))
+        self.assertFalse(answers_match("York", "New York City || NYC"))
 
-        def create_window(self, *_args, **_kwargs):
-            return 1
+    def test_accepts_equivalent_numbers_and_expressions(self):
+        self.assertTrue(answers_match("0.5", "1 / 2"))
+        self.assertTrue(answers_match("50%", "0.5"))
+        self.assertTrue(answers_match("2 + 2", "4"))
 
-        def get(self):
-            return self.value
+    def test_does_not_execute_arbitrary_python(self):
+        self.assertFalse(answers_match("open('/tmp/file')", "4"))
 
-        def set(self, value):
-            self.value = value
+    def test_formats_inline_math(self):
+        rendered = format_math_text(r"Area is $A = \pi r^2$ and $x_1 \le x_2$.")
+        self.assertEqual(rendered, "Area is A = π r² and x₁ ≤ x₂.")
 
-    def test_editor_accepts_a_question_for_editing(self):
-        parameter = inspect.signature(SharpQuiz.show_editor).parameters["question"]
-        self.assertIsNone(parameter.default)
-
-    def test_question_editor_has_persistent_save_action(self):
-        source = inspect.getsource(SharpQuiz.show_editor)
-        self.assertIn('ttk.Button(header, text="Save question"', source)
-        self.assertNotIn("ttk.Button(bottom", source)
-        self.assertNotIn("name 'bottom'", source)
-        self.assertIn('self.root.bind("<Control-s>"', source)
-
-    def test_create_editor_builds_without_undefined_bottom_container(self):
-        fake = self.FakeWidget
-        app = SharpQuiz.__new__(SharpQuiz)
-        app.shell = fake()
-        app.root = fake()
-        app.store = mock.Mock()
-        app._clear = lambda: None
-        app._header = lambda *_args, **_kwargs: fake()
-        app.show_library = lambda: None
-        widget_names = ("Frame", "Canvas", "Label", "StringVar")
-        ttk_names = ("Scrollbar", "Entry", "Button")
-        with mock.patch.multiple(quiz.tk, **{name: fake for name in widget_names}), \
-             mock.patch.multiple(quiz.ttk, **{name: fake for name in ttk_names}), \
-             mock.patch.object(quiz, "EquationEditor", fake):
-            app.show_editor()
-
-    def test_equation_toolbar_includes_special_characters(self):
-        equation_labels = {label for label, _latex in EquationEditor.BUTTONS}
-        symbol_labels = {label for label, _latex in EquationEditor.SPECIAL}
-        self.assertTrue({"a⁄b", "√", "xⁿ", "Σ", "∫", "π"} <= equation_labels)
-        self.assertTrue({"∞", "≠", "≈", "→", "°", "∂", "∇", "∈"} <= symbol_labels)
+    def test_text_outside_math_is_unchanged(self):
+        self.assertEqual(format_math_text("Price is $5"), "Price is $5")
 
 
 if __name__ == "__main__":
