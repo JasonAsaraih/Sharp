@@ -87,5 +87,29 @@ class FreeResponseTests(unittest.TestCase):
         self.assertEqual(rendered.strip(), "⎡ a  b ⎤\n⎡ c  d ⎤")
 
 
+class FreeResponseTests(unittest.TestCase):
+    def test_ignores_whitespace_case_and_punctuation(self):
+        self.assertTrue(answers_match("  Albert   Einstein! ", "albert einstein"))
+
+    def test_accepts_explicit_alternatives(self):
+        self.assertTrue(answers_match("NYC", "New York City || NYC"))
+        self.assertFalse(answers_match("York", "New York City || NYC"))
+
+    def test_accepts_equivalent_numbers_and_expressions(self):
+        self.assertTrue(answers_match("0.5", "1 / 2"))
+        self.assertTrue(answers_match("50%", "0.5"))
+        self.assertTrue(answers_match("2 + 2", "4"))
+
+    def test_does_not_execute_arbitrary_python(self):
+        self.assertFalse(answers_match("open('/tmp/file')", "4"))
+
+    def test_formats_inline_math(self):
+        rendered = format_math_text(r"Area is $A = \pi r^2$ and $x_1 \le x_2$.")
+        self.assertEqual(rendered, "Area is A = π r² and x₁ ≤ x₂.")
+
+    def test_text_outside_math_is_unchanged(self):
+        self.assertEqual(format_math_text("Price is $5"), "Price is $5")
+
+
 if __name__ == "__main__":
     unittest.main()
