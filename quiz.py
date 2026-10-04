@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import ast
+import math
 import os
+import re
 import time
 import tkinter as tk
+import unicodedata
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from uuid import uuid4
@@ -27,6 +31,93 @@ SAMPLE_QUESTIONS = [
         "image": "",
     },
 ]
+
+
+_MATH_SYMBOLS = {
+    r"\times": "×", r"\cdot": "·", r"\div": "÷", r"\pm": "±",
+    r"\le": "≤", r"\ge": "≥", r"\ne": "≠", r"\approx": "≈",
+    r"\infty": "∞", r"\sum": "∑", r"\sqrt": "√", r"\pi": "π",
+    r"\theta": "θ", r"\alpha": "α", r"\beta": "β", r"\gamma": "γ",
+    r"\Delta": "Δ", r"\rightarrow": "→", r"\degree": "°",
+}
+_SUPERSCRIPT = str.maketrans("0123456789+-=()n", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
+_SUBSCRIPT = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
+
+
+def format_math_text(text: str) -> str:
+    """Turn approachable, LaTeX-like text between ``$`` markers into Unicode math.
+
+    This deliberately stays dependency-free so saved quizzes remain portable. For
+    example, ``$x^2 = \\frac{1}{2}\\pi r^2$`` becomes ``x² = ½π r²``.
+    """
+    def render(expression: str) -> str:
+        expression = re.sub(
+            r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}",
+            lambda match: f"({match.group(1)})⁄({match.group(2)})",
+            expression,
+        )
+        for command, symbol in sorted(_MATH_SYMBOLS.items(), key=lambda item: -len(item[0])):
+            expression = expression.replace(command, symbol)
+        expression = re.sub(
+            r"\^\{([^{}]+)\}|\^([0-9+\-=()n]+)",
+            lambda match: (match.group(1) or match.group(2)).translate(_SUPERSCRIPT),
+            expression,
+        )
+        expression = re.sub(
+            r"_\{([^{}]+)\}|_([0-9+\-=()]+)",
+            lambda match: (match.group(1) or match.group(2)).translate(_SUBSCRIPT),
+            expression,
+        )
+        return expression.replace("{", "").replace("}", "")
+
+    return re.sub(r"\$([^$]+)\$", lambda match: render(match.group(1)), text)
+
+
+def _canonical_answer(value: str) -> str:
+    value = unicodedata.normalize("NFKC", format_math_text(value)).casefold()
+    value = value.translate(str.maketrans({"−": "-", "×": "*", "·": "*", "÷": "/", "⁄": "/"}))
+    # Ignore spacing and presentation punctuation, but retain mathematical operators.
+    return "".join(char for char in value if not char.isspace() and
+                   (char.isalnum() or char in ".+-*/^=()%"))
+
+
+def _numeric_value(value: str) -> float | None:
+    """Safely evaluate a small arithmetic answer, without names or function calls."""
+    value = _canonical_answer(value).replace("^", "**")
+    if value.endswith("%"):
+        value = f"({value[:-1]})/100"
+    if "=" in value:
+        value = value.rsplit("=", 1)[-1]
+    try:
+        tree = ast.parse(value, mode="eval")
+    except (SyntaxError, ValueError):
+        return None
+    allowed = (ast.Expression, ast.Constant, ast.UnaryOp, ast.BinOp, ast.Add, ast.Sub,
+               ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.UAdd, ast.USub)
+    if any(not isinstance(node, allowed) or
+           (isinstance(node, ast.Constant) and
+            (not isinstance(node.value, (int, float)) or abs(node.value) > 1e12)) or
+           (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow) and
+            (not isinstance(node.right, ast.Constant) or abs(node.right.value) > 100))
+           for node in ast.walk(tree)):
+        return None
+    try:
+        result = eval(compile(tree, "<answer>", "eval"), {"__builtins__": {}}, {})
+        return float(result) if math.isfinite(float(result)) else None
+    except (ArithmeticError, OverflowError, TypeError, ValueError):
+        return None
+
+
+def answers_match(given: str, expected: str) -> bool:
+    """Compare free responses flexibly; ``||`` separates accepted alternatives."""
+    for alternative in expected.split("||"):
+        if _canonical_answer(given) == _canonical_answer(alternative):
+            return True
+        given_number, expected_number = _numeric_value(given), _numeric_value(alternative)
+        if given_number is not None and expected_number is not None:
+            if math.isclose(given_number, expected_number, rel_tol=1e-9, abs_tol=1e-12):
+                return True
+    return False
 
 
 class QuizStore:
@@ -213,7 +304,8 @@ class SharpQuiz:
             row = tk.Frame(body, bg=self.PANEL, padx=18, pady=12, highlightthickness=1, highlightbackground="#E2DED5")
             row.pack(fill="x", pady=5)
             tk.Label(row, text=f"{number:02}", bg=self.PANEL, fg=self.GREEN, font=("TkDefaultFont", 11, "bold")).pack(side="left")
-            tk.Label(row, text=question["prompt"], bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 11)).pack(side="left", padx=18)
+            tk.Label(row, text=format_math_text(question["prompt"]), bg=self.PANEL, fg=self.INK,
+                     font=("TkDefaultFont", 11)).pack(side="left", padx=18)
             ttk.Button(row, text="Delete", style="Quiet.TButton",
                        command=lambda q=question: self._delete(q)).pack(side="right")
 
@@ -231,8 +323,18 @@ class SharpQuiz:
             tk.Label(form, text=label, bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(12, 5))
             ttk.Entry(form, textvariable=variable, font=("TkDefaultFont", 12)).pack(fill="x")
             tk.Label(form, text=hint, bg=self.PANEL, fg=self.MUTED).pack(anchor="w", pady=(4, 0))
-        field("QUESTION", prompt, "Ask one clear thing at a time.")
-        field("CORRECT ANSWER", answer, "Answers are checked without regard to capital letters.")
+        field("QUESTION", prompt, r"Use $...$ for math, for example $x^2 + \frac{1}{2}$.")
+        field("CORRECT ANSWER", answer,
+              "Spacing, capitalization, and punctuation are ignored. Use || between accepted answers.")
+        preview = tk.Label(form, text="", bg=self.PALE, fg=self.INK, justify="left",
+                           anchor="w", padx=12, pady=8, font=("TkDefaultFont", 11))
+        preview.pack(fill="x", pady=(10, 0))
+        def update_preview(*_args):
+            preview.configure(text=(f"Preview:  {format_math_text(prompt.get())}\n"
+                                    f"Answer:   {format_math_text(answer.get())}"))
+        prompt.trace_add("write", update_preview)
+        answer.trace_add("write", update_preview)
+        update_preview()
         field("ANSWER CHOICES (OPTIONAL)", options, "Separate choices with commas; leave blank for typed response.")
         tk.Label(form, text="PICTURE (OPTIONAL)", bg=self.PANEL, fg=self.INK, font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(18, 5))
         image_row = tk.Frame(form, bg=self.PANEL); image_row.pack(fill="x")
@@ -274,12 +376,12 @@ class SharpQuiz:
                 tk.Label(body, image=shown, bg=self.PANEL).pack(pady=(0, 18))
             except tk.TclError:
                 tk.Label(body, text="Picture unavailable", bg=self.PANEL, fg=self.MUTED).pack()
-        tk.Label(body, text=question["prompt"], wraplength=720, justify="center", bg=self.PANEL,
+        tk.Label(body, text=format_math_text(question["prompt"]), wraplength=720, justify="center", bg=self.PANEL,
                  fg=self.INK, font=("TkDefaultFont", 20, "bold")).pack(pady=(5, 24))
         answer = tk.StringVar()
         if question["options"]:
             for option in question["options"]:
-                tk.Radiobutton(body, text=option, variable=answer, value=option, indicatoron=False,
+                tk.Radiobutton(body, text=format_math_text(option), variable=answer, value=option, indicatoron=False,
                                bg=self.PALE, selectcolor="#A8D9BD", fg=self.INK, padx=18, pady=10).pack(fill="x", pady=4)
         else:
             entry = ttk.Entry(body, textvariable=answer, font=("TkDefaultFont", 14), justify="center")
@@ -288,10 +390,11 @@ class SharpQuiz:
         def submit(timed_out=False):
             if getattr(self, "_answered", False): return
             self._answered = True
-            correct = answer.get().strip().casefold() == question["answer"].strip().casefold()
+            correct = answers_match(answer.get(), question["answer"])
             self.store.record_answer(correct)
             self.session_correct += int(correct)
-            feedback.configure(text=("Nice work — that's right." if correct else f"Answer: {question['answer']}"),
+            shown_answer = format_math_text(question["answer"].split("||", 1)[0].strip())
+            feedback.configure(text=("Nice work — that's right." if correct else f"Answer: {shown_answer}"),
                                fg=self.GREEN if correct else "#A23B3B")
             button.configure(text="Continue →", command=self._advance)
         self._answered = False
