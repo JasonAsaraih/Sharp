@@ -6,6 +6,7 @@ import json
 import ast
 import math
 import os
+import random
 import re
 import time
 import tkinter as tk
@@ -448,6 +449,8 @@ class SharpQuiz:
 
     def _clear(self):
         self.root.unbind("<Control-s>")
+        self.root.unbind("<Return>")
+        self.root.unbind("<KP_Enter>")
         if self._timer_job:
             self.root.after_cancel(self._timer_job)
             self._timer_job = None
@@ -643,7 +646,10 @@ class SharpQuiz:
         if not questions:
             messagebox.showinfo("No questions yet", "Add your first question before practicing."); return
         self.store.data["stats"]["sessions"] += 1; self.store.save()
-        self.session_questions = list(questions); self.session_index = 0; self.session_correct = 0
+        # Work from a fresh shuffled copy so the saved library keeps its chosen
+        # order while every practice session feels different.
+        self.session_questions = random.sample(questions, k=len(questions))
+        self.session_index = 0; self.session_correct = 0; self.session_answered = 0
         self.session_started = time.monotonic(); self.show_question()
 
     def show_question(self):
@@ -653,8 +659,10 @@ class SharpQuiz:
         settings = self.store.data["settings"]; zen = settings["zen"]
         header = self._header("Focus" if zen else "Practice",
                               "" if zen else f"Question {self.session_index + 1} of {len(self.session_questions)}")
-        ttk.Button(header, text="End", style="Quiet.TButton", command=self.finish_session).pack(side="right", padx=32)
-        body = tk.Frame(self.shell, bg=self.PANEL, padx=60, pady=35); body.pack(fill="both", expand=True, padx=90, pady=35)
+        ttk.Button(header, text="Stop", style="Quiet.TButton", command=self.finish_session).pack(side="right", padx=32)
+        body = tk.Frame(self.shell, bg=self.PANEL, padx=60, pady=35,
+                        highlightthickness=2, highlightbackground=self.PANEL)
+        body.pack(fill="both", expand=True, padx=90, pady=35)
         if question.get("image"):
             try:
                 self._photo = tk.PhotoImage(file=question["image"])
@@ -681,13 +689,13 @@ class SharpQuiz:
             answer = EquationEditor(body, height=2)
             answer.pack(fill="x", pady=10)
             answer.text.focus_set()
-            answer.text.bind("<Control-Return>", lambda _e: submit())
         feedback = tk.Label(body, text="", bg=self.PANEL, fg=self.GREEN, font=("TkDefaultFont", 11, "bold")); feedback.pack(pady=10)
         def submit(timed_out=False):
             if getattr(self, "_answered", False): return
             self._answered = True
             correct = answers_match(answer.get(), question["answer"])
             self.store.record_answer(correct)
+            self.session_answered += 1
             self.session_correct += int(correct)
             shown_answer = format_math_text(question["answer"].split("||", 1)[0].strip())
             explanation = format_math_text(question.get("explanation", ""))
@@ -695,10 +703,28 @@ class SharpQuiz:
             if explanation:
                 message += f"\n\n{explanation}"
             feedback.configure(text=message, wraplength=700, justify="left",
-                               fg=self.GREEN if correct else "#333333")
+                               fg=self.GREEN if correct else "#B42318")
+            if not correct:
+                body.configure(highlightbackground="#B42318")
             button.configure(text="Continue →", command=self._advance)
+
+        def enter(_event=None):
+            """Use Enter for both stages: check the answer, then continue."""
+            if self._answered:
+                self._advance()
+            else:
+                submit()
+            return "break"
+
         self._answered = False
         button = ttk.Button(body, text="Check answer", command=submit); button.pack(pady=8)
+        self.root.bind("<Return>", enter)
+        self.root.bind("<KP_Enter>", enter)
+        # A Text widget handles Return before the toplevel sees it, so bind it
+        # directly as well to check the response instead of adding a new line.
+        if isinstance(answer, EquationEditor):
+            answer.text.bind("<Return>", enter)
+            answer.text.bind("<KP_Enter>", enter)
         if settings["timer"]:
             remaining = [int(settings["seconds"])]
             timer_label = tk.Label(body, text="", bg=self.PANEL, fg=self.GOLD, font=("TkDefaultFont", 11, "bold"))
@@ -716,13 +742,21 @@ class SharpQuiz:
     def finish_session(self):
         elapsed = max(time.monotonic() - getattr(self, "session_started", time.monotonic()), 1)
         per_minute = round(getattr(self, "session_correct", 0) * 60 / elapsed)
+        answered = getattr(self, "session_answered", 0)
+        correct = getattr(self, "session_correct", 0)
+        percentage = round(correct * 100 / answered) if answered else 0
+        elapsed_seconds = round(elapsed)
+        minutes, seconds = divmod(elapsed_seconds, 60)
+        elapsed_text = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
         stats = self.store.data["stats"]
         stats["best_per_minute"] = max(stats["best_per_minute"], per_minute); self.store.save()
         self._clear(); self._header("Session complete")
         body = tk.Frame(self.shell, bg=self.BG); body.pack(expand=True)
-        tk.Label(body, text="Practice makes progress.", bg=self.BG, fg=self.INK,
+        tk.Label(body, text="Practice summary", bg=self.BG, fg=self.INK,
                  font=("TkDefaultFont", 26, "bold")).pack(pady=8)
-        tk.Label(body, text=f"{getattr(self, 'session_correct', 0)} correct  •  {per_minute} per minute",
+        tk.Label(body, text=f"{percentage}% correct  •  {correct} of {answered} answered",
+                 bg=self.BG, fg=self.MUTED, font=("TkDefaultFont", 13)).pack(pady=6)
+        tk.Label(body, text=f"Time practicing: {elapsed_text}  •  {per_minute} correct per minute",
                  bg=self.BG, fg=self.MUTED, font=("TkDefaultFont", 13)).pack(pady=6)
         ttk.Button(body, text="Back to dashboard", command=self.show_home).pack(pady=22)
 

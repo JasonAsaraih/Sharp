@@ -1,5 +1,6 @@
 import json
 import inspect
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -183,6 +184,25 @@ class EditorRegressionTests(unittest.TestCase):
         self.assertIn('wraplength=720, justify="left"', source)
         self.assertIn('justify="left", anchor="w"', source)
         self.assertIn('wraplength=700, justify="left"', source)
+
+    def test_practice_supports_two_stage_enter_and_red_incorrect_feedback(self):
+        source = inspect.getsource(SharpQuiz.show_question)
+        self.assertIn('self.root.bind("<Return>", enter)', source)
+        self.assertIn('if self._answered:', source)
+        self.assertIn('highlightbackground="#B42318"', source)
+
+    def test_each_session_uses_a_randomized_question_copy(self):
+        source = inspect.getsource(SharpQuiz.start_session)
+        self.assertIn("random.sample(questions, k=len(questions))", source)
+        questions = list(range(8))
+        with mock.patch.object(random, "sample", return_value=list(reversed(questions))) as sample:
+            self.assertEqual(random.sample(questions, k=len(questions)), list(reversed(questions)))
+            sample.assert_called_once_with(questions, k=len(questions))
+
+    def test_session_summary_includes_percentage_and_elapsed_time(self):
+        source = inspect.getsource(SharpQuiz.finish_session)
+        self.assertIn('percentage = round(correct * 100 / answered)', source)
+        self.assertIn('text=f"Time practicing: {elapsed_text}', source)
 
 
 if __name__ == "__main__":
