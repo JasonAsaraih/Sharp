@@ -326,6 +326,7 @@ class SharpQuiz:
         style.configure("TEntry", padding=8)
 
     def _clear(self):
+        self.root.unbind("<Control-s>")
         if self._timer_job:
             self.root.after_cancel(self._timer_job)
             self._timer_job = None
