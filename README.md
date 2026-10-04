@@ -26,6 +26,9 @@ Sharp is a calm, local-first desktop app for building a personal question bank a
   common symbols such as `$\pi$`, `$\times$`, `$\le$`, and `$\sqrt$`.
 - Attach PNG, GIF, PPM, or PGM pictures to visual questions.
 - Switch between relaxed practice and an optional per-question timer.
+- Press **Enter** to check an answer, then press **Enter** again to continue.
+  Questions are shuffled at the beginning of every practice session, incorrect
+  feedback is highlighted in red, and stopping always shows accuracy and time.
 - Enable Zen mode to hide progress and scores while answering.
 - Track accuracy, app opens, practice sessions, longest correct streak, and best correct answers per minute.
 - Keep everything private in a human-readable JSON file at `~/.sharp_quiz.json`.
