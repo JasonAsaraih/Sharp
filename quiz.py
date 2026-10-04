@@ -444,8 +444,11 @@ class SharpQuiz:
         image_row = tk.Frame(form, bg=self.PANEL); image_row.pack(fill="x")
         ttk.Entry(image_row, textvariable=image_path).pack(side="left", fill="x", expand=True)
         ttk.Button(image_row, text="Choose image", style="Quiet.TButton",
-                   command=lambda: image_path.set(filedialog.askopenfilename(filetypes=[("Images", "*.png *.gif *.ppm *.pgm"), ("All files", "*.*")]))).pack(side="left", padx=(10, 0))
-        error = tk.Label(form, text="", bg=self.PANEL, fg="#A23B3B"); error.pack(anchor="w", pady=8)
+                   command=lambda: image_path.set(filedialog.askopenfilename(
+                       filetypes=[("Images", "*.png *.gif *.ppm *.pgm"), ("All files", "*.*")]))).pack(side="left", padx=6)
+        error = tk.Label(image_row, text="", bg=self.PANEL, fg="#333333")
+        error.pack(side="left", padx=5)
+
         def save():
             raw_choices = choices_editor.get()
             options = raw_choices.splitlines() if "\n" in raw_choices else raw_choices.split(",")

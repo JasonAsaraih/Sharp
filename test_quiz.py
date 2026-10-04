@@ -3,6 +3,7 @@ import inspect
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from quiz import QuizStore, answers_match, format_math_text
 
