@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import quiz
+from quiz import EquationEditor, QuizStore, SharpQuiz, answers_match, format_math_text
 from quiz import QuizStore, answers_match, format_math_text
 
 
@@ -89,6 +91,81 @@ class FreeResponseTests(unittest.TestCase):
         self.assertEqual(rendered.strip(), "⎡ a  b ⎤\n⎡ c  d ⎤")
 
 
+class EditorRegressionTests(unittest.TestCase):
+    class FakeWidget:
+        def __init__(self, *_args, **kwargs):
+            self.value = kwargs.get("value", "")
+            self.command = kwargs.get("command")
+
+        def __getattr__(self, _name):
+            return lambda *_args, **_kwargs: self
+
+        def create_window(self, *_args, **_kwargs):
+            return 1
+
+        def get(self):
+            return self.value
+
+        def set(self, value):
+            self.value = value
+
+    def test_editor_accepts_a_question_for_editing(self):
+        parameter = inspect.signature(SharpQuiz.show_editor).parameters["question"]
+        self.assertIsNone(parameter.default)
+
+    def test_question_editor_has_persistent_save_action(self):
+        source = inspect.getsource(SharpQuiz.show_editor)
+        self.assertIn('ttk.Button(header, text="Save question"', source)
+        self.assertIn('ttk.Button(bottom, text="Save question"', source)
+        self.assertLess(source.index("bottom = tk.Frame"),
+                        source.index('ttk.Button(bottom, text="Save question"'))
+        self.assertIn('self.root.bind("<Control-s>"', source)
+
+    def test_create_editor_builds_without_undefined_bottom_container(self):
+        fake = self.FakeWidget
+        app = SharpQuiz.__new__(SharpQuiz)
+        app.shell = fake()
+        app.root = fake()
+        app.store = mock.Mock()
+        app._clear = lambda: None
+        app._header = lambda *_args, **_kwargs: fake()
+        app.show_library = lambda: None
+        widget_names = ("Frame", "Canvas", "Label", "StringVar")
+        ttk_names = ("Scrollbar", "Entry", "Button")
+        with mock.patch.multiple(quiz.tk, **{name: fake for name in widget_names}), \
+             mock.patch.multiple(quiz.ttk, **{name: fake for name in ttk_names}), \
+             mock.patch.object(quiz, "EquationEditor", fake):
+            app.show_editor()
+
+    def test_new_question_save_callback_reaches_store(self):
+        fake = self.FakeWidget
+        buttons = []
+
+        class CapturedButton(fake):
+            def __init__(self, *_args, **kwargs):
+                super().__init__(*_args, **kwargs)
+                if kwargs.get("text") == "Save question":
+                    buttons.append(self)
+
+        app = SharpQuiz.__new__(SharpQuiz)
+        app.shell, app.root, app.store = fake(), fake(), mock.Mock()
+        app._clear = lambda: None
+        app._header = lambda *_args, **_kwargs: fake()
+        app.show_library = mock.Mock()
+        with mock.patch.multiple(quiz.tk, Frame=fake, Canvas=fake, Label=fake, StringVar=fake), \
+             mock.patch.multiple(quiz.ttk, Scrollbar=fake, Entry=fake, Button=CapturedButton), \
+             mock.patch.object(quiz, "EquationEditor", fake):
+            app.show_editor()
+            self.assertEqual(len(buttons), 2)
+            buttons[0].command()
+        app.store.add_question.assert_called_once()
+        app.show_library.assert_called_once()
+
+    def test_equation_toolbar_includes_special_characters(self):
+        equation_labels = {label for label, _latex in EquationEditor.BUTTONS}
+        symbol_labels = {label for label, _latex in EquationEditor.SPECIAL}
+        self.assertTrue({"a⁄b", "√", "xⁿ", "Σ", "∫", "π"} <= equation_labels)
+        self.assertTrue({"∞", "≠", "≈", "→", "°", "∂", "∇", "∈"} <= symbol_labels)
 class FreeResponseTests(unittest.TestCase):
     def test_ignores_whitespace_case_and_punctuation(self):
         self.assertTrue(answers_match("  Albert   Einstein! ", "albert einstein"))
