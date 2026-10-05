@@ -451,6 +451,9 @@ class SharpQuiz:
         self.root.unbind("<Control-s>")
         self.root.unbind("<Return>")
         self.root.unbind("<KP_Enter>")
+        self.root.unbind("<MouseWheel>")
+        self.root.unbind("<Button-4>")
+        self.root.unbind("<Button-5>")
         if self._timer_job:
             self.root.after_cancel(self._timer_job)
             self._timer_job = None
@@ -525,7 +528,35 @@ class SharpQuiz:
         self._clear(); header = self._header("Question library")
         ttk.Button(header, text="＋ Add", command=self.show_editor).pack(side="right", padx=(8, 32))
         ttk.Button(header, text="← Home", style="Quiet.TButton", command=self.show_home).pack(side="right")
-        body = tk.Frame(self.shell, bg=self.BG); body.pack(fill="both", expand=True, padx=36, pady=25)
+        holder = tk.Frame(self.shell, bg=self.BG)
+        holder.pack(fill="both", expand=True, padx=36, pady=25)
+        canvas = tk.Canvas(holder, bg=self.BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(holder, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        body = tk.Frame(canvas, bg=self.BG)
+        body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>",
+                  lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda event: canvas.itemconfigure(body_window, width=event.width))
+
+        # Bind on the toplevel so the wheel keeps working while the pointer is
+        # over a question label or one of its buttons, not only over the canvas.
+        def scroll(event):
+            if getattr(event, "num", None) == 4:
+                direction = -1
+            elif getattr(event, "num", None) == 5:
+                direction = 1
+            else:
+                direction = -1 if event.delta > 0 else 1
+            canvas.yview_scroll(direction, "units")
+            return "break"
+
+        self.root.bind("<MouseWheel>", scroll)
+        self.root.bind("<Button-4>", scroll)
+        self.root.bind("<Button-5>", scroll)
         for number, question in enumerate(self.store.data["questions"], 1):
             row = tk.Frame(body, bg=self.PANEL, padx=18, pady=12, highlightthickness=1, highlightbackground="#E2DED5")
             row.pack(fill="x", pady=5)

@@ -121,6 +121,21 @@ class EditorRegressionTests(unittest.TestCase):
         parameter = inspect.signature(SharpQuiz.show_editor).parameters["question"]
         self.assertIsNone(parameter.default)
 
+    def test_question_library_uses_a_scrollable_full_width_canvas(self):
+        source = inspect.getsource(SharpQuiz.show_library)
+        self.assertIn('ttk.Scrollbar(holder, orient="vertical", command=canvas.yview)', source)
+        self.assertIn('canvas.configure(scrollregion=canvas.bbox("all"))', source)
+        self.assertIn('canvas.itemconfigure(body_window, width=event.width)', source)
+        self.assertIn('self.root.bind("<MouseWheel>", scroll)', source)
+        self.assertIn('self.root.bind("<Button-4>", scroll)', source)
+        self.assertIn('self.root.bind("<Button-5>", scroll)', source)
+
+    def test_leaving_library_removes_scroll_bindings(self):
+        source = inspect.getsource(SharpQuiz._clear)
+        self.assertIn('self.root.unbind("<MouseWheel>")', source)
+        self.assertIn('self.root.unbind("<Button-4>")', source)
+        self.assertIn('self.root.unbind("<Button-5>")', source)
+
     def test_question_editor_has_persistent_save_action(self):
         source = inspect.getsource(SharpQuiz.show_editor)
         self.assertIn('ttk.Button(header, text="Save question"', source)
